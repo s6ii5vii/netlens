@@ -4,7 +4,7 @@ AI-powered network diagnostics for unreliable internet environments.
 
 ## Overview
 
-NetLens is a local-first network assistant that helps people understand whether their internet connection is ready for real work. It diagnoses connection health, explains what is going wrong, recommends practical fixes, and predicts whether common tasks will work right now.
+NetLens is a local-first AI-powered network assistant designed for low-quality internet environments. It helps people understand whether their internet connection is ready for real work by analyzing connection health, explaining issues in plain language, recommending practical fixes, and predicting whether common tasks like video calls or uploads will work right now.
 
 The app pairs a lightweight local FastAPI agent with a premium dark dashboard. The backend runs diagnostics from the user's machine, while the frontend turns raw network signals into clear, useful guidance.
 
