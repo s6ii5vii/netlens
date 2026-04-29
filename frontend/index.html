@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetLens Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="root">
+  <div class="header">
+    <div class="brand">
+      <div class="brand-orb">
+        <div class="orb-ring"></div>
+        <div class="orb-dot"></div>
+      </div>
+      <div>
+        <div class="brand-name">netlens</div>
+        <div class="brand-tag">network intelligence</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="nav">
+        <button class="nav-btn act" id="dashboard-nav" type="button" data-view-target="dashboard">dashboard</button>
+        <button class="nav-btn" id="history-nav" type="button" data-view-target="history">history &rarr;</button>
+        <button class="nav-btn" id="ask-ai-nav" type="button">ask ai &rarr;</button>
+      </div>
+      <div class="agent-pill" id="agent-pill">
+        <span class="agent-dot"></span>
+        <span id="agent-status-text">checking agent</span>
+      </div>
+      <div class="live-pill" id="live-pill">
+        <div class="live-dot"></div>
+        <span id="live-status-text">checking</span>
+      </div>
+    </div>
+  </div>
+
+  <section class="app-view is-active" id="dashboard-view" data-view="dashboard">
+  <div class="score-band">
+    <div class="gauge-wrap">
+      <div class="gauge-glow"></div>
+      <div class="gauge">
+        <svg class="arc" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="38" fill="none" stroke="#121210" stroke-width="5"/>
+          <circle cx="50" cy="50" r="38" fill="none" stroke="#2a2010" stroke-width="5"
+            stroke-dasharray="239" stroke-dashoffset="0"
+            stroke-linecap="round" transform="rotate(-90 50 50)"/>
+          <circle id="score-arc" cx="50" cy="50" r="38" fill="none" stroke="#c8a96e" stroke-width="5"
+            stroke-dasharray="239" stroke-dashoffset="72"
+            stroke-linecap="round" transform="rotate(-90 50 50)"/>
+        </svg>
+        <div class="gauge-num">
+          <span class="gauge-big" id="gauge-n">72</span>
+          <span class="gauge-unit">/ 100</span>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      <div class="verdict-topline">
+        <div class="verdict-eyebrow">network health</div>
+        <div class="status-chip" id="status-chip">demo mode</div>
+      </div>
+      <div class="verdict-title" id="verdict-title">Checking connection</div>
+      <div class="verdict-sub" id="verdict-sub">Run diagnostics to measure your current network quality.</div>
+      <div class="verdict-meta">
+        <span>edge probe</span>
+        <span>5 packets</span>
+        <span>8.8.8.8</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="metrics" id="metrics-grid">
+    <div class="metric">
+      <div class="metric-head">
+        <div class="metric-icon">ms</div>
+        <div class="m-lbl">Latency</div>
+      </div>
+      <div class="m-change neu">live</div>
+      <div class="m-val cl-a"><span id="latency-val">--</span><span class="m-unit"> ms</span></div>
+      <div class="m-track"><div class="m-fill fa" id="latency-fill" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="metric-head">
+        <div class="metric-icon">%</div>
+        <div class="m-lbl">Packet loss</div>
+      </div>
+      <div class="m-change dn">live</div>
+      <div class="m-val cl-r"><span id="packet-loss-val">--</span><span class="m-unit"> %</span></div>
+      <div class="m-track"><div class="m-fill fr" id="loss-fill" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="metric-head">
+        <div class="metric-icon">dl</div>
+        <div class="m-lbl">Download</div>
+      </div>
+      <div class="m-change up">live</div>
+      <div class="m-val cl-g"><span id="download-val">--</span><span class="m-unit"> Mb/s</span></div>
+      <div class="m-track"><div class="m-fill fg" id="download-fill" style="width:0%"></div></div>
+    </div>
+    <div class="metric">
+      <div class="metric-head">
+        <div class="metric-icon">dns</div>
+        <div class="m-lbl">DNS ping</div>
+      </div>
+      <div class="m-change up">live</div>
+      <div class="m-val cl-b"><span id="dns-val">--</span><span class="m-unit"> ms</span></div>
+      <div class="m-track"><div class="m-fill fb" id="dns-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="p-head">
+        <div>
+          <span class="p-lbl">AI-recommended fixes</span>
+          <p class="panel-copy">Ranked actions based on the latest probe.</p>
+        </div>
+        <span class="p-badge">3 found</span>
+      </div>
+      <div class="fix-list" id="fix-list">
+        <div class="fix">
+          <div class="fix-rank r1">1</div>
+          <div class="fix-body">
+            <div class="fix-title">Switch DNS to 8.8.8.8</div>
+            <div class="fix-meta">
+              <span><span class="impact-dot" style="background:#c8a96e"></span>high impact</span>
+              <span>30 sec</span>
+            </div>
+            <button class="fix-action" type="button" data-guide-title="Switch DNS to 8.8.8.8">guide me &rarr;</button>
+          </div>
+        </div>
+        <div class="fix">
+          <div class="fix-rank r2">2</div>
+          <div class="fix-body">
+            <div class="fix-title">Disconnect background devices</div>
+            <div class="fix-meta">
+              <span><span class="impact-dot" style="background:#7a7060"></span>medium impact</span>
+              <span>1 min</span>
+            </div>
+            <button class="fix-action" type="button" data-guide-title="Disconnect background devices">guide me &rarr;</button>
+          </div>
+        </div>
+        <div class="fix">
+          <div class="fix-rank r3">3</div>
+          <div class="fix-body">
+            <div class="fix-title">Move closer to your router</div>
+            <div class="fix-meta">
+              <span><span class="impact-dot" style="background:#3a3830"></span>medium impact</span>
+              <span>instant</span>
+            </div>
+            <button class="fix-action" type="button" data-guide-title="Move closer to router">guide me &rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="p-head">
+        <div>
+          <span class="p-lbl">Signal today</span>
+          <p class="panel-copy">Recent score history for quick trend scanning.</p>
+        </div>
+        <span class="p-badge">15 readings</span>
+      </div>
+      <div class="signal-bars" id="spark"></div>
+      <div class="spark-axis">
+        <span>6h ago</span><span>4h</span><span>2h</span><span>now</span>
+      </div>
+      <div class="insight-card">
+        Congestion peaks <span>7 - 9 PM</span> daily. Schedule large transfers before <span>6 PM</span> for best results.
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="b-head">
+      <div>
+        <span class="p-lbl">Can I do this right now?</span>
+        <p class="panel-copy">Task readiness generated from the current diagnostics.</p>
+      </div>
+      <span class="p-badge">6 tasks checked</span>
+    </div>
+    <div class="tasks">
+      <div class="task t-y" data-task-key="email" data-task-label="Email">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="3" width="14" height="10" rx="2" stroke="#6ec896" stroke-width="1.5"/><path d="M1 6l7 4 7-4" stroke="#6ec896" stroke-width="1.5"/></svg>
+        </div>
+        <div class="task-name">email</div>
+        <div class="task-pct" id="task-email">--</div>
+      </div>
+      <div class="task t-w" data-task-key="video_call" data-task-label="Video call">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#c8a96e" stroke-width="1.5"/><path d="M6 6l4 2-4 2V6z" fill="#c8a96e"/></svg>
+        </div>
+        <div class="task-name">video call</div>
+        <div class="task-pct" id="task-video-call">--</div>
+      </div>
+      <div class="task t-n" data-task-key="upload_1gb" data-task-label="1 GB upload">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M4 7l4-4 4 4" stroke="#c96e6e" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <div class="task-name">1 GB upload</div>
+        <div class="task-pct" id="task-upload">--</div>
+      </div>
+      <div class="task t-y" data-task-key="music" data-task-label="Music">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#6ec896" stroke-width="1.5"/><path d="M5 10c0-2 1-3 3-3s3 1 3 3" stroke="#6ec896" stroke-width="1.2"/><circle cx="8" cy="6" r="1" fill="#6ec896"/></svg>
+        </div>
+        <div class="task-name">music</div>
+        <div class="task-pct" id="task-music">--</div>
+      </div>
+      <div class="task t-w" data-task-key="video_4k" data-task-label="4K video">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="2" width="14" height="11" rx="2" stroke="#c8a96e" stroke-width="1.5"/><path d="M5 13v1M11 13v1M4 14h8" stroke="#c8a96e" stroke-width="1.2"/></svg>
+        </div>
+        <div class="task-name">4K video</div>
+        <div class="task-pct" id="task-4k">--</div>
+      </div>
+      <div class="task t-y" data-task-key="whatsapp" data-task-label="WhatsApp">
+        <div class="task-ico">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11 2c1.66 0 3 1.34 3 3 0 2.66-3 5.5-3 5.5S8 7.66 8 5c0-1.66 1.34-3 3-3z" fill="#6ec896" opacity="0.3"/><path d="M11 2c1.66 0 3 1.34 3 3 0 2.66-3 5.5-3 5.5S8 7.66 8 5c0-1.66 1.34-3 3-3zM3 8c1.1 0 2 .9 2 2 0 1.77-2 3.67-2 3.67S1 11.77 1 10c0-1.1.9-2 2-2z" stroke="#6ec896" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="task-name">WhatsApp</div>
+        <div class="task-pct" id="task-whatsapp">--</div>
+      </div>
+    </div>
+    <div class="ask-netlens" id="ask-netlens-section">
+      <div class="ask-head">
+        <div>
+          <span class="p-lbl">Ask NetLens</span>
+          <h2>Ask NetLens</h2>
+          <p class="panel-copy">Check a specific task against your live connection.</p>
+        </div>
+      </div>
+      <form class="ask-form" id="ask-form">
+        <input id="ask-input" type="text" placeholder="Ask if your connection can handle a task right now" autocomplete="off">
+        <button type="submit">Analyze</button>
+      </form>
+      <div class="ask-examples" aria-label="Example questions">
+        <button type="button" data-ask-example="Can I join a Zoom call?">Can I join a Zoom call?</button>
+        <button type="button" data-ask-example="Can I upload a 500MB file?">Can I upload a 500MB file?</button>
+        <button type="button" data-ask-example="Can I stream 4K video?">Can I stream 4K video?</button>
+        <button type="button" data-ask-example="Can I push code to GitHub?">Can I push code to GitHub?</button>
+      </div>
+    </div>
+    <button class="run-btn" id="run-diagnostics-btn" onclick="runDiagnostics()">
+      <span>Run full AI diagnosis</span>
+      <span class="run-btn-arrow">&rarr;</span>
+    </button>
+  </div>
+  </section>
+
+  <section class="app-view history-view" id="history-view" data-view="history" hidden>
+    <div class="history-head">
+      <div>
+        <span class="p-lbl">Network History</span>
+        <h1>Network History</h1>
+        <p class="panel-copy">Recent scans and connection trends from this device.</p>
+      </div>
+      <button class="history-refresh" id="history-refresh" type="button">Refresh</button>
+    </div>
+
+    <div class="history-summary">
+      <div class="history-card">
+        <span>average score</span>
+        <strong id="history-avg-score">--</strong>
+      </div>
+      <div class="history-card">
+        <span>average latency</span>
+        <strong><span id="history-avg-latency">--</span><small> ms</small></strong>
+      </div>
+      <div class="history-card">
+        <span>average packet loss</span>
+        <strong><span id="history-avg-loss">--</span><small> %</small></strong>
+      </div>
+      <div class="history-card">
+        <span>best score</span>
+        <strong id="history-best-score">--</strong>
+      </div>
+    </div>
+
+    <div class="history-panel">
+      <div class="p-head">
+        <div>
+          <span class="p-lbl">Connection trend</span>
+          <p class="panel-copy">Score movement across recent scans.</p>
+        </div>
+        <span class="p-badge" id="history-count">0 scans</span>
+      </div>
+      <div class="signal-bars history-bars" id="history-bars"></div>
+      <div class="history-state" id="history-state" hidden></div>
+    </div>
+
+    <div class="history-panel">
+      <div class="p-head">
+        <div>
+          <span class="p-lbl">Recent scans</span>
+          <p class="panel-copy">Timestamp, score, latency, packet loss, and status.</p>
+        </div>
+      </div>
+      <div class="history-list" id="history-list"></div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <div class="footer-l" id="last-scan">not scanned yet</div>
+    <div class="footer-r">
+      <div class="refresh-pill"></div>
+      <span>auto-refresh in 3 min</span>
+    </div>
+  </div>
+</main>
+
+<div class="task-popup-overlay" id="task-popup-overlay" hidden>
+  <div class="task-popup" id="task-popup" role="dialog" aria-modal="true" aria-labelledby="task-popup-title">
+    <button class="task-popup-close" id="task-popup-close" type="button" aria-label="Close">×</button>
+    <div class="task-popup-hero">
+      <div class="task-popup-icon" id="task-popup-icon">?</div>
+      <div>
+        <div class="task-popup-label" id="task-popup-task">Task</div>
+        <div class="task-popup-score" id="task-popup-score">0%</div>
+      </div>
+    </div>
+    <div class="task-popup-top">
+      <span class="task-popup-badge maybe" id="task-popup-verdict">MAYBE</span>
+      <span class="task-popup-confidence" id="task-popup-confidence">0% confidence</span>
+    </div>
+    <h2 id="task-popup-title">Task readiness</h2>
+    <p class="task-popup-explanation" id="task-popup-explanation"></p>
+    <div class="task-popup-fallback">
+      <span>Fallback</span>
+      <p id="task-popup-fallback"></p>
+    </div>
+    <div class="guide-steps" id="guide-steps" hidden>
+      <span>Step-by-step</span>
+      <ol id="guide-step-list"></ol>
+    </div>
+    <div class="error-actions" id="error-actions" hidden>
+      <button class="error-retry" id="error-retry" type="button">Try again</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
