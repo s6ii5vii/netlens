@@ -459,8 +459,45 @@ function updateMetrics(result) {
 
   setText("verdict-title", result.verdict_title);
   setText("verdict-sub", result.verdict_subtitle);
+  renderAiInsight(result);
   updateTaskPercentages(result.tasks);
   renderRecommendations(result.recommendations);
+}
+
+function renderAiInsight(result) {
+  const card = $("ai-insight-card");
+  if (!card) return;
+
+  const summary = cleanInsightText(result?.ai_summary);
+  const mainIssue = cleanInsightText(result?.main_issue);
+  const bestNextAction = cleanInsightText(result?.best_next_action);
+  const riskLevel = normalizeRiskLevel(result?.risk_level);
+
+  if (!summary && !mainIssue && !bestNextAction && !riskLevel) {
+    card.hidden = true;
+    return;
+  }
+
+  card.hidden = false;
+  card.classList.remove("risk-low", "risk-medium", "risk-high");
+  if (riskLevel) {
+    card.classList.add(`risk-${riskLevel}`);
+  }
+
+  setText("ai-summary", summary || "NetLens generated a compact rule-based summary for this scan.");
+  setText("ai-main-issue", mainIssue || "No major issue detected");
+  setText("ai-best-next-action", bestNextAction || "Keep monitoring your connection");
+  setText("ai-risk-level", riskLevel ? `${riskLevel} risk` : "risk unknown");
+}
+
+function cleanInsightText(value) {
+  const text = String(value || "").trim();
+  return text.length > 0 ? text : "";
+}
+
+function normalizeRiskLevel(value) {
+  const risk = String(value || "").trim().toLowerCase();
+  return ["low", "medium", "high"].includes(risk) ? risk : "";
 }
 
 function updateTaskPercentages(tasks) {

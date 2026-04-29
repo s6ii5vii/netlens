@@ -1,3 +1,5 @@
+import json
+import os
 import random
 import re
 import socket
@@ -397,6 +399,107 @@ def _task_scores(
     }
 
 
+def _fallback_ai_diagnosis(metrics: dict) -> dict[str, str]:
+    recommendations = metrics.get("recommendations") or []
+    first_recommendation = recommendations[0]["title"] if recommendations else "Keep monitoring your connection"
+    score = int(metrics.get("score", 0))
+    status = str(metrics.get("status", "unknown"))
+    latency_ms = float(metrics.get("latency_ms", 0))
+    packet_loss = float(metrics.get("packet_loss", 0))
+    dns_ms = float(metrics.get("dns_ms", 0))
+    download_mbps = float(metrics.get("download_mbps", 0))
+
+    if status == "good":
+        risk_level = "low"
+        main_issue = "No major issue detected"
+    elif status == "fair":
+        risk_level = "medium"
+        main_issue = "Connection quality may vary"
+    else:
+        risk_level = "high"
+        main_issue = "Connection is unreliable right now"
+
+    if packet_loss >= 5:
+        main_issue = "Packet loss is the main problem"
+    elif latency_ms >= 140:
+        main_issue = "High latency is the main problem"
+    elif dns_ms >= 90:
+        main_issue = "DNS response time is slow"
+    elif download_mbps < 12:
+        main_issue = "Available bandwidth is limited"
+
+    return {
+        "ai_summary": f"NetLens rates this connection {status} with a score of {score}. {main_issue}.",
+        "main_issue": main_issue,
+        "best_next_action": first_recommendation,
+        "risk_level": risk_level,
+    }
+
+
+def _clean_ai_diagnosis(payload: dict, fallback: dict[str, str]) -> dict[str, str]:
+    risk_level = str(payload.get("risk_level", fallback["risk_level"])).strip().lower()
+    if risk_level not in {"low", "medium", "high"}:
+        risk_level = fallback["risk_level"]
+
+    cleaned = {
+        "ai_summary": str(payload.get("ai_summary", fallback["ai_summary"])).strip(),
+        "main_issue": str(payload.get("main_issue", fallback["main_issue"])).strip(),
+        "best_next_action": str(payload.get("best_next_action", fallback["best_next_action"])).strip(),
+        "risk_level": risk_level,
+    }
+
+    for key, value in fallback.items():
+        if not cleaned[key]:
+            cleaned[key] = value
+
+    return cleaned
+
+
+def generate_ai_diagnosis(metrics: dict) -> dict:
+    fallback = _fallback_ai_diagnosis(metrics)
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return fallback
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            "gemini-1.5-flash",
+            generation_config={
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+            },
+        )
+        structured_metrics = {
+            "score": metrics.get("score"),
+            "status": metrics.get("status"),
+            "latency_ms": metrics.get("latency_ms"),
+            "packet_loss": metrics.get("packet_loss"),
+            "dns_ms": metrics.get("dns_ms"),
+            "download_mbps": metrics.get("download_mbps"),
+            "recommendations": metrics.get("recommendations"),
+            "tasks": metrics.get("tasks"),
+        }
+        prompt = (
+            "You explain NetLens network diagnostics for a dashboard.\n"
+            "Return JSON only with these keys: ai_summary, main_issue, best_next_action, risk_level.\n"
+            "risk_level must be one of: low, medium, high.\n"
+            "Explain in plain English. Be practical. Do not invent metrics. "
+            "Do not contradict the score, status, recommendations, or task scores. "
+            "Keep text short and dashboard-friendly.\n"
+            f"Metrics JSON:\n{json.dumps(structured_metrics, separators=(',', ':'))}"
+        )
+        response = model.generate_content(prompt)
+        payload = json.loads(response.text)
+        if not isinstance(payload, dict):
+            return fallback
+        return _clean_ai_diagnosis(payload, fallback)
+    except Exception:
+        return fallback
+
+
 def clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
 
@@ -639,6 +742,7 @@ def run_diagnostics():
     result_saved = _save_diagnostic(result)
     if not result_saved:
         result["history_saved"] = False
+    result.update(generate_ai_diagnosis(result))
     return result
 
 
