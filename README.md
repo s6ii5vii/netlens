@@ -37,7 +37,7 @@ The app pairs a lightweight local FastAPI agent with a premium dark dashboard. T
 NetLens works best when the local NetLens Agent is running.
 
 ```bat
-git clone <your-repo-url>
+git clone https:/github.com/s6ii5vii/netlens
 cd netlens
 python -m venv venv
 .\venv\Scripts\activate
@@ -58,6 +58,3 @@ You can also start the backend on Windows with:
 run_agent.bat
 ```
 
-## Hackathon Note
-
-Built for the LUMA Hackathon.
