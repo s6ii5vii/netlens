@@ -1,1264 +1,616 @@
-// Constants
-const API_BASE_URL = "http://127.0.0.1:8000";
-const SCORE_CIRCUMFERENCE = 239;
+"use strict";
 
-// State
-let latestDiagnostics = null;
-let pendingErrorRetry = null;
-const currentTaskScores = {
-  email: 98,
-  video_call: 96,
-  upload_1gb: 58,
-  music: 96,
-  video_4k: 53,
-  whatsapp: 98,
-};
-
-// Content libraries
-const taskMessageLibrary = {
-  email: {
-    label: "Email",
-    icon: "@",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "Email is reliable",
-        explanation: "Email should send and receive reliably with minimal delay. Inbox refresh, login handshakes, and small attachments have plenty of headroom.",
-        fallback: "Send normally. Keep the tab open for large attachments until the sent confirmation appears.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "Email should work",
-        explanation: "Text mail, inbox sync, and normal attachments should complete cleanly. Large files may take a little longer if the connection dips.",
-        fallback: "Send urgent text first, then attach larger files in a separate message.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "Email is usable",
-        explanation: "Text messages should send, but attachment uploads and inbox refreshes may pause during latency spikes.",
-        fallback: "Copy important text before sending and keep attachments small.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "Email may stall",
-        explanation: "Basic text might move, but sign-in refreshes, outbox sync, and attachments can time out at this level.",
-        fallback: "Avoid attachments and wait for a stronger score before sending critical mail.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "Email is not dependable",
-        explanation: "Sends may fail, attachments may partially upload, and inbox changes may remain stuck in the outbox.",
-        fallback: "Switch networks or wait before sending anything important.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-  video_call: {
-    label: "Video call",
-    icon: "VC",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "Video call is ready",
-        explanation: "Camera, microphone, and screen sharing should stay smooth with minimal lag or audio gaps.",
-        fallback: "Join normally. Pause large downloads if the meeting is important.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "Video call should hold",
-        explanation: "A call should work well, though the app may briefly lower quality if other devices start using bandwidth.",
-        fallback: "Close streaming apps and keep screen share light.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "Video call may wobble",
-        explanation: "A call may work, but expect occasional lag or quality drops. Audio is more likely to survive than camera-on video.",
-        fallback: "Join with camera off first, then enable video if the first minute stays stable.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "Video will struggle",
-        explanation: "Live traffic is exposed to lag, packet recovery, and reconnects. Group calls and screen share are likely to feel unstable.",
-        fallback: "Use audio only, move closer to the router, or switch to a wired connection.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "Video call is not reliable",
-        explanation: "This score is below the practical floor for live calls. Expect missed speech, frozen video, or repeated reconnects.",
-        fallback: "Use phone audio or reschedule until the connection score recovers.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-  upload_1gb: {
-    label: "1 GB upload",
-    icon: "UP",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "Large upload is safe",
-        explanation: "A 1 GB transfer should finish cleanly without repeated retries or long idle stalls.",
-        fallback: "Keep the upload tab open and avoid restarting the router mid-transfer.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "Upload should complete",
-        explanation: "A 1 GB file should upload, though completion time may stretch if background devices compete for bandwidth.",
-        fallback: "Pause streaming and cloud sync until the upload reaches 100%.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "Upload may be slow",
-        explanation: "The upload can start, but a 1 GB file may be slow and vulnerable to stalls if the connection drops briefly.",
-        fallback: "Use a resumable uploader such as Drive, Dropbox, or OneDrive.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "Upload is high risk",
-        explanation: "A large transfer may restart, sit at 0%, or fail near completion because the connection cannot sustain throughput.",
-        fallback: "Compress the file, split it into smaller parts, or wait until the score is above 75%.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "Upload is not recommended",
-        explanation: "Not recommended right now. The upload may stall or take too long.",
-        fallback: "Reconnect to a stronger network before starting the transfer.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-  music: {
-    label: "Music",
-    icon: "M",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "Music will feel instant",
-        explanation: "Audio streaming has plenty of headroom, so track starts, playlist loads, and skipping should feel immediate.",
-        fallback: "High-quality audio is safe to leave enabled.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "Music should stay stable",
-        explanation: "Music should stream continuously with enough buffer margin for normal browsing at the same time.",
-        fallback: "Download a playlist only if you need uninterrupted playback while moving networks.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "Music is mostly okay",
-        explanation: "Playback should work, but starting new tracks or switching playlists may buffer when the network briefly dips.",
-        fallback: "Use standard audio quality and avoid rapid track skipping.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "Music may buffer",
-        explanation: "The player may pause while rebuilding buffer, especially at track changes or when starting a new playlist.",
-        fallback: "Use downloaded music or force low-quality streaming.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "Streaming is unreliable",
-        explanation: "Even audio may struggle to maintain a buffer. Playback can fail to start or stop repeatedly.",
-        fallback: "Use offline playback until the signal recovers.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-  video_4k: {
-    label: "4K video",
-    icon: "4K",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "4K is ready",
-        explanation: "4K playback has enough bandwidth headroom for startup buffer, seeking, and adaptive bitrate without frequent drops.",
-        fallback: "Keep downloads paused if you want the stream to stay locked at 4K.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "4K should work",
-        explanation: "4K should work, but adaptive players may step down briefly if other devices start heavy traffic.",
-        fallback: "Let the video buffer for 10-15 seconds before scrubbing.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "4K may be uneven",
-        explanation: "A 4K stream may start, but sustained playback is uncertain. Expect buffering or automatic drops to 1080p.",
-        fallback: "Choose 1080p manually for a smoother session.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "4K will likely buffer",
-        explanation: "Likely to buffer. Drop to 720p or 1080p.",
-        fallback: "Switch to 720p or 1080p before playback starts.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "4K is not realistic",
-        explanation: "The connection is too weak for high-bitrate video. Playback will likely stall, downgrade immediately, or fail to load.",
-        fallback: "Use standard definition and retry 4K after the score improves.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-  whatsapp: {
-    label: "WhatsApp",
-    icon: "WA",
-    bands: {
-      excellent: {
-        verdict: "yes",
-        title: "WhatsApp is smooth",
-        explanation: "Messaging, voice notes, and light calls should work smoothly.",
-        fallback: "Use WhatsApp normally, including media and voice notes.",
-        confidenceText: "Very high confidence",
-      },
-      strong: {
-        verdict: "yes",
-        title: "WhatsApp should work",
-        explanation: "Text, delivery receipts, and voice notes should be reliable. Larger videos may take longer.",
-        fallback: "Compress long videos or wait for Wi-Fi before sending them.",
-        confidenceText: "High confidence",
-      },
-      mixed: {
-        verdict: "maybe",
-        title: "WhatsApp is usable",
-        explanation: "Text messages should still deliver, but photos, voice notes, and delivery receipts may lag during network dips.",
-        fallback: "Use text for urgent messages and retry media if it stays pending.",
-        confidenceText: "Moderate confidence",
-      },
-      weak: {
-        verdict: "no",
-        title: "WhatsApp may lag",
-        explanation: "Short messages may still pass, but voice notes, images, and reconnecting calls may feel inconsistent.",
-        fallback: "Stick to text and avoid sending media until the score improves.",
-        confidenceText: "Low confidence",
-      },
-      poor: {
-        verdict: "no",
-        title: "WhatsApp is shaky",
-        explanation: "Messages may sit unsent, and media uploads may fail before completion.",
-        fallback: "Switch networks or move closer to the router before sending anything important.",
-        confidenceText: "Very low confidence",
-      },
-    },
-  },
-};
-
-const recommendationGuides = {
-  "Switch DNS to 8.8.8.8": {
-    title: "Switch DNS to 8.8.8.8",
-    reason: "DNS response time is elevated, so websites may feel slow to start loading.",
-    expectedImpact: "High impact",
-    estimatedTime: "30 sec",
-    steps: [
-      "Open your network settings.",
-      "Find your active Wi-Fi or Ethernet connection.",
-      "Set DNS server to 8.8.8.8 and backup DNS to 8.8.4.4.",
-      "Save changes and rerun NetLens.",
-    ],
-    bestFor: "Slow page starts, app login delays, and high DNS lookup times.",
-    note: "This helps mostly when DNS lookup is the bottleneck, not when the full connection is weak.",
-  },
-  "Disconnect background devices": {
-    title: "Disconnect background devices",
-    reason: "Your score suggests shared traffic may be competing with this device and reducing available bandwidth.",
-    expectedImpact: "High impact",
-    estimatedTime: "1 min",
-    steps: [
-      "Pause streaming boxes, game consoles, and cloud backup devices.",
-      "Stop large downloads on laptops and phones using the same network.",
-      "Ask other users to pause video calls or uploads for a minute.",
-      "Run NetLens again and compare the download and packet loss values.",
-    ],
-    bestFor: "Weak bandwidth, upload stalls, and evening congestion.",
-    note: "This is most useful when the network is shared and one device is consuming a large slice of available bandwidth.",
-  },
-  "Move closer to router": {
-    title: "Move closer to router",
-    reason: "Packet loss or latency can rise when the Wi-Fi signal is weak, blocked, or bouncing through walls.",
-    expectedImpact: "Medium impact",
-    estimatedTime: "Instant",
-    steps: [
-      "Move within the same room as the router if possible.",
-      "Keep the device above desk height and away from metal surfaces.",
-      "Avoid thick walls, microwaves, and crowded power strips between you and the router.",
-      "Run another diagnostic and check whether latency and loss improve.",
-    ],
-    bestFor: "Unstable video calls, gaming lag, and sudden packet loss.",
-    note: "This helps Wi-Fi quality. It will not fix a slow internet plan or an upstream provider issue.",
-  },
-  "Pause downloads": {
-    title: "Pause downloads",
-    reason: "Large transfers can saturate bandwidth and make real-time tasks feel laggy or unreliable.",
-    expectedImpact: "High impact",
-    estimatedTime: "Instant",
-    steps: [
-      "Pause browser downloads, app updates, and cloud sync jobs.",
-      "Stop video streams or lower them to standard definition.",
-      "Wait 10 seconds for bandwidth to clear.",
-      "Run NetLens again before starting calls, uploads, or 4K video.",
-    ],
-    bestFor: "Video calls, large uploads, gaming, and latency-sensitive work.",
-    note: "This is a temporary fix. If downloads restart automatically, the connection may degrade again.",
-  },
-  "Restart router": {
-    title: "Restart router",
-    reason: "A router restart can clear stale sessions, memory pressure, and radio issues that cause packet loss.",
-    expectedImpact: "High impact",
-    estimatedTime: "2 min",
-    steps: [
-      "Unplug the router power cable.",
-      "Wait 20 seconds before plugging it back in.",
-      "Give the network one to two minutes to reconnect fully.",
-      "Run NetLens again and compare packet loss and latency.",
-    ],
-    bestFor: "Persistent packet loss, stuck connections, and sudden whole-home network issues.",
-    note: "Avoid restarting during active calls, uploads, or downloads because every connected device will briefly disconnect.",
-  },
-  "Reduce video quality": {
-    title: "Reduce video quality",
-    reason: "The connection may not have enough stable headroom for high-bitrate video right now.",
-    expectedImpact: "Medium impact",
-    estimatedTime: "15 sec",
-    steps: [
-      "Open the video player's quality menu.",
-      "Switch from 4K or 1080p to 720p.",
-      "Let the video buffer for 10 seconds before scrubbing.",
-      "Rerun NetLens if buffering continues.",
-    ],
-    bestFor: "4K video buffering, unstable streams, and shared networks under load.",
-    note: "Lowering quality reduces bandwidth pressure immediately while keeping playback smooth.",
-  },
-  "Retry later": {
-    title: "Retry later",
-    reason: "The current network condition looks temporary or congested, so waiting may be the fastest reliable fix.",
-    expectedImpact: "Medium impact",
-    estimatedTime: "5-15 min",
-    steps: [
-      "Pause the task you were about to start.",
-      "Wait a few minutes for congestion or signal fluctuation to settle.",
-      "Avoid starting large downloads while waiting.",
-      "Run NetLens again and compare the score before retrying.",
-    ],
-    bestFor: "Short-lived congestion, unstable scores, and non-urgent uploads or streams.",
-    note: "If the score stays weak after multiple retries, use one of the active fixes instead of waiting longer.",
-  },
-};
+// Served by the agent, use same-origin URLs. Opened as a file, point at the default agent address.
+const API = location.protocol.startsWith("http") ? "" : "http://127.0.0.1:8000";
 
 const $ = (id) => document.getElementById(id);
 
-// Utilities
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
+const READING_ORDER = ["latency_ms", "jitter_ms", "packet_loss", "dns_ms", "download_mbps", "upload_mbps"];
+const WHERE_LABEL = { none: "—", local: "Wi-Fi / LAN", isp: "provider", unknown: "unclear" };
+const VERDICT_LABEL = { yes: "Yes", shaky: "Shaky", no: "No", unknown: "Untested" };
 
-// API functions
-async function postJson(path, body = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+const state = { scanning: false, source: null, latest: null, history: [] };
 
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === null || value === undefined || value === false) continue;
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else node.setAttribute(key, value === true ? "" : value);
   }
-
-  return response.json();
-}
-
-async function getJson(path) {
-  const response = await fetch(`${API_BASE_URL}${path}`);
-
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
-
-  return response.json();
+  return node;
 }
 
-async function checkAgentHealth() {
+function svg(tag, attrs = {}, ...children) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  for (const child of children.flat()) {
+    if (child) node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+function fmt(value, unit) {
+  if (value === null || value === undefined) return "—";
+  if (unit === "%") return `${+value.toFixed(1)}%`;
+  if (unit === "Mb/s") return `${value < 10 ? value.toFixed(1) : Math.round(value)} Mb/s`;
+  return `${Math.round(value)} ${unit}`;
+}
+
+function number(value, unit) {
+  if (value === null || value === undefined) return null;
+  if (unit === "%") return String(+value.toFixed(1));
+  if (unit === "Mb/s") return value < 10 ? value.toFixed(1) : String(Math.round(value));
+  return String(Math.round(value));
+}
+
+function when(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso || "—";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(`${API}${path}`, { cache: "no-store", ...options });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try { detail = (await response.json()).detail || detail; } catch { /* not JSON */ }
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
+  }
+  return response.status === 204 ? null : response.json();
+}
+
+const storage = {
+  get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage unavailable */ } },
+};
+
+// ---------------------------------------------------------------------------
+// Agent status
+// ---------------------------------------------------------------------------
+
+async function checkAgent() {
+  const agent = $("agent");
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, { cache: "no-store" });
-    if (!response.ok) throw new Error(`Health check failed: ${response.status}`);
-    updateAgentStatus(true);
+    const health = await api("/health");
+    agent.dataset.state = "online";
+    $("agent-text").textContent = `agent online · v${health.version}`;
     return true;
-  } catch {
-    updateAgentStatus(false);
-    return false;
+  } catch (error) {
+    agent.dataset.state = "offline";
+    // A 403 from a file:// page means the agent IS running but refuses cross-site requests.
+    $("agent-text").textContent = error.status === 403 ? "open the dashboard from the agent" : "agent not running";
+    return error.status === 403 ? "wrong-origin" : false;
   }
 }
 
-// UI rendering functions
-function updateAgentStatus(isConnected) {
-  $("agent-pill")?.classList.toggle("is-offline", !isConnected);
-  $("live-pill")?.classList.toggle("is-offline", !isConnected);
-  setText("agent-status-text", isConnected ? "Agent connected" : "Agent not detected");
-  setText("live-status-text", isConnected ? "live" : "demo mode");
-  if (!isConnected) {
-    setText("status-chip", "demo mode");
+function showOffline(reason) {
+  const dialog = $("offline");
+  if (reason === "wrong-origin") {
+    $("offline-title").textContent = "Open NetLens from the agent.";
+    $("offline-body").replaceChildren(
+      el("p", { text: "The agent is running, but it only talks to the dashboard it serves itself." }),
+      el("p", {}, "Open ", el("a", { href: "http://127.0.0.1:8000", text: "http://127.0.0.1:8000" }), "."),
+    );
   }
+  if (!dialog.open) dialog.showModal();
 }
 
-function setText(id, value) {
-  const element = $(id);
-  if (element) element.textContent = value;
+// ---------------------------------------------------------------------------
+// Scanning
+// ---------------------------------------------------------------------------
+
+const STAGE_TEXT = {
+  path: "pinging your router and the internet",
+  dns: "timing DNS lookups",
+  download: "measuring download speed",
+  upload: "measuring upload speed",
+};
+
+function logLine(text, className = "") {
+  const item = el("li", { class: className, text });
+  $("scan-log").append(item);
+  return item;
 }
 
-function setFill(id, percent) {
-  const element = $(id);
-  if (element) element.style.width = `${clamp(percent, 0, 100)}%`;
+function setPending(stage) {
+  const pending = $("scan-log").querySelector(".pending");
+  if (pending) pending.remove();
+  if (stage) logLine(`${STAGE_TEXT[stage]}…`, "pending");
 }
 
-function updateScore(score, status) {
-  setText("gauge-n", score);
-  setText("status-chip", status || "demo mode");
+function lineClass(rating) {
+  return { poor: "fail", fair: "warn", good: "ok" }[rating] || "";
+}
 
-  const arc = $("score-arc");
-  if (arc) {
-    arc.style.strokeDashoffset = SCORE_CIRCUMFERENCE * (1 - score / 100);
-    arc.style.stroke = status === "good" ? "#6ec896" : status === "poor" ? "#c96e6e" : "#c8a96e";
+function describeStage(stage, metrics) {
+  const errors = metrics.errors || {};
+  if (stage === "path") {
+    const lines = [];
+    if (metrics.gateway_ip && errors.gateway) {
+      lines.push([`router ${metrics.gateway_ip} · ${errors.gateway}`, "fail"]);
+    } else if (metrics.gateway_ip) {
+      lines.push([
+        `router ${metrics.gateway_ip} · ${fmt(metrics.gateway_ms, "ms")} · ${fmt(metrics.gateway_loss, "%")} lost`,
+        lineClass(linkRating(metrics.gateway_ms, metrics.gateway_loss, metrics.gateway_jitter_ms, LOCAL_LIMITS)),
+      ]);
+    } else {
+      lines.push(["router address not found · skipped", "warn"]);
+    }
+    if (errors.ping) lines.push([`internet · ${errors.ping}`, "fail"]);
+    else {
+      lines.push([
+        `internet ${metrics.ping_host} · ${fmt(metrics.latency_ms, "ms")} · jitter ${fmt(metrics.jitter_ms, "ms")} · ${fmt(metrics.packet_loss, "%")} lost`,
+        lineClass(linkRating(metrics.latency_ms, metrics.packet_loss, metrics.jitter_ms, ISP_LIMITS)),
+      ]);
+    }
+    return lines;
   }
+  const readings = partialReadings(metrics);
+  if (stage === "dns") {
+    return [[errors.dns ? `dns · ${errors.dns}` : `dns lookup · ${fmt(metrics.dns_ms, "ms")}`, errors.dns ? "fail" : lineClass(readings.dns_ms.rating)]];
+  }
+  const key = `${stage}_mbps`;
+  const error = errors[stage];
+  if (error === "skipped") return [[`${stage} · skipped (data saver)`, ""]];
+  if (error) return [[`${stage} · ${error}`, "fail"]];
+  return [[`${stage} · ${fmt(metrics[key], "Mb/s")}`, lineClass(readings[key].rating)]];
 }
 
-function updateMetrics(result) {
-  latestDiagnostics = result;
+const LOCAL_LIMITS = { ms: [10, 30], loss: [1, 3], jitter: [5, 15] };
+const ISP_LIMITS = { ms: [60, 150], loss: [1, 3], jitter: [15, 30] };
 
-  updateScore(result.score, result.status);
-  document.getElementById("gauge-n").innerText = result.score;
-  document.getElementById("latency-val").innerText = result.latency_ms;
-  document.getElementById("packet-loss-val").innerText = result.packet_loss;
-  document.getElementById("download-val").innerText = result.download_mbps;
-  document.getElementById("dns-val").innerText = result.dns_ms;
-  setText("last-scan", `last scan ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+const NEXT_STAGE = { path: "dns", dns: "download", download: "upload", upload: null };
 
-  setFill("latency-fill", 100 - (clamp(result.latency_ms, 0, 250) / 250) * 100);
-  setFill("loss-fill", 100 - (clamp(result.packet_loss, 0, 25) / 25) * 100);
-  setFill("download-fill", (clamp(result.download_mbps, 0, 25) / 25) * 100);
-  setFill("dns-fill", 100 - (clamp(result.dns_ms, 0, 150) / 150) * 100);
+function startScan() {
+  if (state.scanning) return;
+  state.scanning = true;
+  const button = $("scan-btn");
+  button.disabled = true;
+  button.replaceChildren(el("span", { class: "spinner", "aria-hidden": "true" }), "Scanning…");
+  $("scan-log").replaceChildren();
+  $("ask-answer").hidden = true;
+  $("report-no").textContent = "New report";
+  $("report-time").textContent = "scanning now";
 
-  setText("verdict-title", result.verdict_title);
-  setText("verdict-sub", result.verdict_subtitle);
-  renderAiInsight(result);
-  updateTaskPercentages(result.tasks);
-  renderRecommendations(result.recommendations);
+  setLink("link-local", "testing", "testing…");
+  setLink("link-isp", "testing", "testing…");
+  $("path-note").textContent = "Sending 8 pings to your router and 8 to the internet, side by side.";
+  setPending("path");
+
+  const saver = $("data-saver").checked;
+  const source = new EventSource(`${API}/api/v1/scan/stream?throughput=${saver ? "false" : "true"}`);
+  state.source = source;
+
+  source.addEventListener("stage", (event) => {
+    const { stage, metrics } = JSON.parse(event.data);
+    setPending(null);
+    for (const [text, className] of describeStage(stage, metrics)) logLine(text, className);
+    renderReadings({ metrics }, true);
+    if (stage === "path") renderPath({ metrics, location: null });
+    const next = NEXT_STAGE[stage];
+    if (next && !(saver && (next === "download" || next === "upload"))) setPending(next);
+  });
+
+  source.addEventListener("result", (event) => {
+    finishScan();
+    const result = JSON.parse(event.data);
+    logLine(result.saved ? `done · score ${result.score} · saved to log` : "done · not saved, the internet test could not run", result.saved ? "done" : "fail");
+    render(result);
+    loadHistory();
+  });
+
+  source.addEventListener("error", (event) => {
+    let message = "Lost contact with the agent during the scan.";
+    if (event.data) {
+      try { message = JSON.parse(event.data).detail; } catch { /* keep default */ }
+    }
+    finishScan();
+    setPending(null);
+    logLine(message, "fail");
+    resetLinks();
+    checkAgent().then((ok) => { if (ok !== true) showOffline(ok); });
+  });
 }
 
-function renderAiInsight(result) {
-  const card = $("ai-insight-card");
-  if (!card) return;
+function finishScan() {
+  state.scanning = false;
+  if (state.source) state.source.close();
+  state.source = null;
+  const button = $("scan-btn");
+  button.disabled = false;
+  button.textContent = "Scan again";
+  if (!state.latest) $("report-time").textContent = "no scan yet";
+}
 
-  const summary = cleanInsightText(result?.ai_summary);
-  const mainIssue = cleanInsightText(result?.main_issue);
-  const bestNextAction = cleanInsightText(result?.best_next_action);
-  const riskLevel = normalizeRiskLevel(result?.risk_level);
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 
-  if (!summary && !mainIssue && !bestNextAction && !riskLevel) {
-    card.hidden = true;
+function render(result) {
+  state.latest = result;
+  $("report-no").textContent = result.id ? `Report Nº ${String(result.id).padStart(4, "0")}` : "Report (unsaved)";
+  $("report-time").textContent = new Date(result.timestamp).toLocaleString(undefined, {
+    weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+  setHeadline(result.headline);
+  $("subline").textContent = subline(result);
+
+  const scoreBox = $("score-box");
+  scoreBox.dataset.status = result.status;
+  const scoreEl = $("score");
+  scoreEl.classList.remove("bump");
+  void scoreEl.offsetWidth; // restart the animation
+  scoreEl.textContent = result.score ?? "–";
+  scoreEl.classList.add("bump");
+  $("status").textContent = result.status;
+
+  renderPath(result);
+  renderReadings(result);
+  renderTasks(result.tasks);
+  renderFixes(result.fixes);
+}
+
+// Italicise the closing words, so the verdict reads like a headline.
+function setHeadline(text) {
+  const words = text.split(" ");
+  const tail = words.length > 3 ? 2 : 1;
+  $("headline").replaceChildren(`${words.slice(0, -tail).join(" ")} `, el("em", { text: words.slice(-tail).join(" ") }));
+}
+
+function subline(result) {
+  const ok = result.tasks.filter((task) => task.verdict === "yes").length;
+  const untested = result.tasks.filter((task) => task.verdict === "unknown").length;
+  if (result.status === "unmeasured") return `${result.location.detail} Nothing was saved to the log.`;
+  let text = result.status === "offline" ? "Nothing that needs the internet will work." : (ok === 0 ? `None of the ${result.tasks.length} everyday tasks look safe right now.`
+      : ok === result.tasks.length ? "Calls, streaming, gaming and big transfers should all be fine."
+      : `${ok} of ${result.tasks.length} everyday tasks look fine right now.`);
+  if (untested) text += ` ${untested} untested because speed tests were skipped.`;
+  if (result.fixes.length) text += ` Best first step: ${result.fixes[0].title.toLowerCase()}.`;
+  return text;
+}
+
+function setLink(id, linkState, label, trouble = false) {
+  const link = $(id);
+  link.dataset.state = linkState;
+  if (trouble) link.dataset.trouble = "";
+  else delete link.dataset.trouble;
+  $(`${id}-label`).textContent = label;
+}
+
+function resetLinks() {
+  setLink("link-local", "idle", "Wi-Fi / LAN");
+  setLink("link-isp", "idle", "Provider");
+}
+
+function linkRating(ms, loss, jitter, limits) {
+  if (loss === null || loss === undefined) return "unknown";
+  if (loss >= 100) return "poor";
+  if (loss >= limits.loss[1] || ms > limits.ms[1] || (jitter ?? 0) > limits.jitter[1]) return "poor";
+  if (loss >= limits.loss[0] || ms > limits.ms[0] || (jitter ?? 0) > limits.jitter[0]) return "fair";
+  return "good";
+}
+
+function renderPath(result) {
+  const m = result.metrics;
+  const where = result.location ? result.location.where : null;
+  $("router-ip").textContent = m.gateway_ip || "not found";
+  $("internet-host").textContent = m.ping_host || "—";
+
+  if (m.gateway_ip && m.gateway_loss !== null && m.gateway_loss !== undefined) {
+    const rating = linkRating(m.gateway_ms, m.gateway_loss, m.gateway_jitter_ms, LOCAL_LIMITS);
+    const label = m.gateway_loss === 100 ? "no reply" : `${fmt(m.gateway_ms, "ms")} · ${fmt(m.gateway_loss, "%")} lost`;
+    setLink("link-local", rating, label, where === "local");
+  } else {
+    setLink("link-local", "unknown", "not tested", false);
+  }
+
+  if (m.errors && m.errors.ping) {
+    setLink("link-isp", "unknown", "not tested", false);
+  } else if (m.packet_loss !== null && m.packet_loss !== undefined) {
+    // The internet hop includes the router hop; subtract it so the label shows what's beyond the router.
+    const beyond = m.latency_ms !== null && m.gateway_ms !== null && m.gateway_ms !== undefined
+      ? Math.max(m.latency_ms - m.gateway_ms, 0) : m.latency_ms;
+    const rating = linkRating(m.latency_ms, m.packet_loss, m.jitter_ms, ISP_LIMITS);
+    const label = m.packet_loss === 100 ? "no reply" : `+${fmt(beyond, "ms")} · ${fmt(m.packet_loss, "%")} lost`;
+    setLink("link-isp", rating, label, where === "isp");
+  }
+
+  if (result.location) $("path-note").textContent = result.location.detail;
+}
+
+function renderReadings(result, partial = false) {
+  const metrics = result.metrics;
+  const readings = result.readings || partialReadings(metrics);
+  const container = $("readings");
+  container.replaceChildren(
+    ...READING_ORDER.map((key) => {
+      const reading = readings[key];
+      const error = metrics.errors ? metrics.errors[key.split("_")[0]] : null;
+      const value = number(reading.value, reading.unit);
+      const ratingText = reading.value === null ? (partial && !error ? "waiting" : "n/a") : reading.rating;
+      return el(
+        "div",
+        { class: "reading" },
+        el("div", { class: "reading-top" },
+          el("span", { class: "eyebrow", text: reading.label }),
+          el("span", { class: `pill ${reading.rating}`, text: ratingText })),
+        value === null
+          ? el("div", { class: "reading-value na", text: error === "skipped" ? "skipped" : error ? "failed" : "—" })
+          : el("div", { class: "reading-value" }, value, el("small", { text: reading.unit })),
+        scale(reading),
+        key === "latency_ms" && metrics.rtts && metrics.rtts.length ? trace(metrics.rtts, metrics.packet_loss) : null,
+        error && error !== "skipped" ? el("p", { class: "reading-note", text: error }) : null,
+      );
+    }),
+  );
+}
+
+// Before the final analysis arrives, show raw values without ratings.
+const PARTIAL_META = {
+  latency_ms: ["latency", "ms", 60, 150, true],
+  jitter_ms: ["jitter", "ms", 15, 40, true],
+  packet_loss: ["packet loss", "%", 1, 5, true],
+  dns_ms: ["DNS lookup", "ms", 60, 150, true],
+  download_mbps: ["download", "Mb/s", 25, 5, false],
+  upload_mbps: ["upload", "Mb/s", 10, 2, false],
+};
+
+function partialReadings(metrics) {
+  const out = {};
+  for (const [key, [label, unit, good, poor, lower]] of Object.entries(PARTIAL_META)) {
+    const value = metrics[key] ?? null;
+    let rating = "unknown";
+    if (value !== null) {
+      rating = lower ? (value <= good ? "good" : value <= poor ? "fair" : "poor")
+        : (value >= good ? "good" : value >= poor ? "fair" : "poor");
+    }
+    out[key] = { label, unit, value, rating, good, poor, lower_is_better: lower };
+  }
+  return out;
+}
+
+function scale(reading) {
+  const { good, poor, lower_is_better: lower, value } = reading;
+  const max = (lower ? poor : good) * 1.6;
+  const pct = (v) => Math.min(Math.max((v / max) * 100, 0), 100);
+  const zones = lower
+    ? [["z-good", pct(good)], ["z-fair", pct(poor) - pct(good)], ["z-poor", 100 - pct(poor)]]
+    : [["z-poor", pct(poor)], ["z-fair", pct(good) - pct(poor)], ["z-good", 100 - pct(good)]];
+  return el(
+    "div",
+    {},
+    el("div", { class: "scale-bar", role: "img", "aria-label": `${reading.label}: ${fmt(value, reading.unit)} on a scale where ${lower ? "under" : "over"} ${fmt(good, reading.unit)} is good` },
+      zones.map(([cls, width]) => el("i", { class: cls, style: `width:${width}%` })),
+      value === null ? null : el("span", { class: "scale-mark", style: `left:${pct(value)}%` })),
+    el("div", { class: "scale-legend" },
+      el("span", { text: "0" }),
+      el("span", { text: `${lower ? "under" : "over"} ${fmt(good, reading.unit)} is good` }),
+      el("span", { text: `${fmt(max, reading.unit)}+` })),
+  );
+}
+
+function trace(rtts, loss) {
+  if (!rtts.length) return null;
+  const width = 100;
+  const height = 30;
+  const max = Math.max(...rtts) * 1.15 || 1;
+  const step = rtts.length > 1 ? width / (rtts.length - 1) : 0;
+  const points = rtts.map((rtt, i) => `${(i * step).toFixed(1)},${(height - (rtt / max) * height).toFixed(1)}`).join(" ");
+  return svg(
+    "svg",
+    { class: "spark", viewBox: `0 -2 ${width} ${height + 4}`, preserveAspectRatio: "none", role: "img", "aria-label": `${rtts.length} ping round trips` },
+    svg("title", {}, `Each ping: ${rtts.map((r) => `${Math.round(r)} ms`).join(", ")}${loss ? ` (${fmt(loss, "%")} lost)` : ""}`),
+    svg("polyline", { points }),
+  );
+}
+
+function renderTasks(tasks) {
+  $("tasks").replaceChildren(
+    ...tasks.map((task) =>
+      el("li", { class: "task" },
+        el("span", { class: "task-name", text: task.label }),
+        el("span", { class: `pill ${task.verdict}`, text: VERDICT_LABEL[task.verdict] }),
+        el("span", { class: "task-reason" },
+          task.reason,
+          task.untested.length && task.verdict !== "unknown" ? el("em", { text: ` (${task.untested.join(", ")} not tested)` }) : null),
+      ),
+    ),
+  );
+}
+
+function renderFixes(fixes) {
+  const list = $("fixes");
+  if (!fixes.length) {
+    list.replaceChildren(el("li", { class: "empty", text: "Nothing to fix. The connection is in good shape." }));
     return;
   }
-
-  card.hidden = false;
-  card.classList.remove("risk-low", "risk-medium", "risk-high");
-  if (riskLevel) {
-    card.classList.add(`risk-${riskLevel}`);
-  }
-
-  setText("ai-summary", summary || "NetLens generated a compact rule-based summary for this scan.");
-  setText("ai-main-issue", mainIssue || "No major issue detected");
-  setText("ai-best-next-action", bestNextAction || "Keep monitoring your connection");
-  setText("ai-risk-level", riskLevel ? `${riskLevel} risk` : "risk unknown");
+  list.replaceChildren(
+    ...fixes.map((fix, index) =>
+      el("li", { class: "fix", style: `animation-delay:${index * 60}ms` },
+        el("div", { class: "fix-top" },
+          el("b", { text: index === 0 ? "Start here" : `Step ${String(index + 1).padStart(2, "0")}` }),
+          el("span", { text: fix.time })),
+        el("h3", { text: fix.title }),
+        el("p", { class: "fix-why", text: fix.why }),
+        el("details", { open: index === 0 },
+          el("summary", { text: "How to do it" }),
+          el("ol", {}, fix.steps.map((step) => el("li", { text: step }))),
+          fix.note ? el("p", { class: "fix-note", text: fix.note }) : null)),
+    ),
+  );
 }
 
-function cleanInsightText(value) {
-  const text = String(value || "").trim();
-  return text.length > 0 ? text : "";
-}
+// ---------------------------------------------------------------------------
+// Ask
+// ---------------------------------------------------------------------------
 
-function normalizeRiskLevel(value) {
-  const risk = String(value || "").trim().toLowerCase();
-  return ["low", "medium", "high"].includes(risk) ? risk : "";
-}
-
-function updateTaskPercentages(tasks) {
-  if (!tasks) return;
-
-  Object.keys(currentTaskScores).forEach((taskKey) => {
-    const nextScore = normalizeTaskScore(tasks[taskKey]);
-    if (Number.isFinite(nextScore)) {
-      currentTaskScores[taskKey] = nextScore;
-    }
-  });
-
-  renderTaskCards();
-}
-
-function normalizeTaskScore(value) {
-  const score = Number(value);
-  if (!Number.isFinite(score)) return null;
-  return Math.round(clamp(score, 0, 100));
-}
-
-function renderTaskCards() {
-  updateTaskCard("task-email", currentTaskScores.email);
-  updateTaskCard("task-video-call", currentTaskScores.video_call);
-  updateTaskCard("task-upload", currentTaskScores.upload_1gb);
-  updateTaskCard("task-music", currentTaskScores.music);
-  updateTaskCard("task-4k", currentTaskScores.video_4k);
-  updateTaskCard("task-whatsapp", currentTaskScores.whatsapp);
-}
-
-function updateTaskCard(elementId, value) {
-  const element = $(elementId);
-  if (!element) return;
-
-  const card = element.closest(".task");
-  const score = normalizeTaskScore(value);
-  if (!Number.isFinite(score)) return;
-
-  element.textContent = `${score}%`;
-
-  if (!card) return;
-  card.dataset.score = String(score);
-  card.classList.remove("t-y", "t-w", "t-n");
-  card.classList.add(score >= 75 ? "t-y" : score >= 55 ? "t-w" : "t-n");
-}
-
-// Recommendations
-function renderRecommendations(recommendations) {
-  const list = $("fix-list");
-  if (!list || !Array.isArray(recommendations) || recommendations.length === 0) return;
-
-  list.innerHTML = recommendations
-    .slice(0, 3)
-    .map((recommendation, index) => {
-      const rankClass = index === 0 ? "r1" : index === 1 ? "r2" : "r3";
-      const guide = findRecommendationGuide(recommendation.title);
-      const impact = recommendation.impact || guide.expectedImpact.replace(" impact", "").toLowerCase();
-      const dotColor = impact === "high" ? "#c8a96e" : "#7a7060";
-      const time = recommendation.time || guide.estimatedTime;
-
-      return `
-        <div class="fix">
-          <div class="fix-rank ${rankClass}">${index + 1}</div>
-          <div class="fix-body">
-            <div class="fix-title">${recommendation.title}</div>
-            <div class="fix-meta">
-              <span><span class="impact-dot" style="background:${dotColor}"></span>${impact} impact</span>
-              <span>${time}</span>
-            </div>
-            <button class="fix-action" type="button" data-guide-title="${recommendation.title}">guide me &rarr;</button>
-          </div>
-        </div>
-      `;
-    })
-    .join("");
-
-}
-
-function openRecommendationGuide(title) {
-  const guide = findRecommendationGuide(title);
-  showRecommendationGuidePopup(guide);
-}
-
-function findRecommendationGuide(title = "") {
-  if (recommendationGuides[title]) return recommendationGuides[title];
-
-  const normalizedTitle = normalizeGuideTitle(title);
-  const directMatch = Object.entries(recommendationGuides).find(([guideTitle]) => normalizeGuideTitle(guideTitle) === normalizedTitle);
-  if (directMatch) return directMatch[1];
-
-  const keywordMatches = [
-    { key: "Switch DNS to 8.8.8.8", terms: ["dns", "lookup", "8.8.8.8", "8.8.4.4"] },
-    { key: "Disconnect background devices", terms: ["background", "device", "devices", "congestion", "shared", "competing"] },
-    { key: "Move closer to router", terms: ["router", "closer", "wifi", "wi-fi", "signal", "wireless"] },
-    { key: "Pause downloads", terms: ["pause", "download", "downloads", "upload", "cloud sync", "sync"] },
-    { key: "Restart router", terms: ["restart", "reboot", "power cycle"] },
-    { key: "Reduce video quality", terms: ["video quality", "4k", "1080p", "720p", "buffer", "stream"] },
-    { key: "Retry later", terms: ["retry", "later", "wait", "temporary"] },
-  ];
-
-  const match = keywordMatches.find(({ terms }) => terms.some((term) => normalizedTitle.includes(term)));
-  return match ? recommendationGuides[match.key] : buildFallbackRecommendationGuide(title);
-}
-
-function normalizeGuideTitle(title) {
-  return String(title).toLowerCase().replace(/[^a-z0-9.]+/g, " ").trim();
-}
-
-function buildFallbackRecommendationGuide(title) {
-  return {
-    title: title || "Recommended fix",
-    reason: "NetLens selected this action because it can improve the weakest part of the current connection profile.",
-    expectedImpact: "Medium impact",
-    estimatedTime: "1 min",
-    steps: [
-      "Apply the recommendation in your network setup.",
-      "Wait a few seconds for the connection to stabilize.",
-      "Run NetLens again and compare the score.",
-    ],
-    bestFor: "Fair or poor scores when you need a quick improvement.",
-    note: "Use this as a general fix when NetLens receives a recommendation title that is not in the guide library yet.",
-  };
-}
-
-// Diagnostics and task analysis
-async function runDiagnostics() {
-  const button = $("run-diagnostics-btn");
-
-  try {
-    if (button) {
-      button.classList.add("is-loading");
-      button.disabled = true;
-      button.querySelector("span").textContent = "Running diagnosis...";
-    }
-    setDiagnosticsLoading(true);
-
-    const isAgentReady = await checkAgentHealth();
-    if (!isAgentReady) {
-      showAgentUnavailableModal("NetLens Agent is not running. Start the backend locally to run live diagnostics.");
-      return;
-    }
-
-    const result = await postJson("/api/v1/diagnostics/run");
-    updateMetrics(result);
-    await loadDiagnosticsHistory();
-    if (!$("history-view")?.hidden) {
-      await refreshHistoryView();
-    }
-  } catch {
-    showAgentUnavailableModal();
-  } finally {
-    setDiagnosticsLoading(false);
-    if (button) {
-      button.classList.remove("is-loading");
-      button.disabled = false;
-      button.querySelector("span").textContent = "Run full AI diagnosis";
-    }
-  }
-}
-
-function setDiagnosticsLoading(isLoading) {
-  $("metrics-grid")?.classList.toggle("is-loading", isLoading);
-}
-
-function showAgentUnavailableModal(message = "Live diagnostics require the local FastAPI agent to be running.", retryAction = runDiagnostics) {
-  showErrorModal({
-    taskLabel: "NetLens Agent",
-    icon: "!",
-    severity: "no",
-    title: "NetLens Agent not detected",
-    explanation: message,
-    action: "Start the backend with uvicorn main:app --reload, then try again.",
-    retryAction,
-  });
-}
-
-function showErrorModal({
-  title,
-  explanation,
-  action,
-  severity = "no",
-  taskLabel = "NetLens",
-  icon = "!",
-  retryAction = null,
-}) {
-  pendingErrorRetry = retryAction;
-  showTaskResultPopup({
-    taskLabel,
-    icon,
-    verdict: severity,
-    title,
-    explanation,
-    fallback: action,
-    confidenceText: severity === "no" ? "Action needed" : "Needs attention",
-    isError: true,
-    hasRetry: Boolean(retryAction),
-  });
-}
-
-// Task cards
-function getScoreBand(score) {
-  if (score >= 90) return "excellent";
-  if (score >= 75) return "strong";
-  if (score >= 55) return "mixed";
-  if (score >= 35) return "weak";
-  return "poor";
-}
-
-function buildTaskPopupData(taskKey) {
-  const task = taskMessageLibrary[taskKey];
-  const score = currentTaskScores[taskKey];
-  if (!task || !Number.isFinite(score)) return null;
-
-  const band = getScoreBand(score);
-  const message = task.bands[band];
-
-  return {
-    taskKey,
-    taskLabel: task.label,
-    icon: task.icon,
-    score,
-    band,
-    ...message,
-  };
-}
-
-function openTaskCardPopup(card) {
-  const data = buildTaskPopupData(card.dataset.taskKey);
-  if (!data) return;
-
-  document.querySelectorAll(".task.is-selected").forEach((selectedCard) => {
-    selectedCard.classList.remove("is-selected");
-  });
-  card.classList.add("is-selected");
-  window.setTimeout(() => card.classList.remove("is-selected"), 260);
-  showTaskResultPopup(data);
-}
-
-async function checkTask(task, options = {}) {
-  if (!latestDiagnostics) {
-    await runDiagnostics();
-  }
-
-  if (!latestDiagnostics) {
-    await checkAgentHealth();
-    throw new Error("NetLens agent unavailable");
-  }
-
-  const result = await postJson("/api/v1/assistant/check-task", {
-    task,
-    latency_ms: latestDiagnostics.latency_ms,
-    packet_loss: latestDiagnostics.packet_loss,
-    download_mbps: latestDiagnostics.download_mbps,
-  });
-
-  if (!options.silent) {
-    showTaskResultPopup(result);
-  }
-
-  return result;
-}
-
-async function analyzeAskNetLens(event) {
+async function ask(event) {
   event.preventDefault();
-
-  const input = $("ask-input");
-  const form = $("ask-form");
-  const button = form?.querySelector("button[type='submit']");
-  const task = input?.value.trim() || input?.placeholder;
-  if (!task) return;
-
+  const question = $("ask-input").value.trim().replace(/^can i\s+/i, "").replace(/\s*(right now)?\s*\?*$/i, "");
+  if (!question) return;
+  const box = $("ask-answer");
+  box.hidden = false;
   try {
-    form?.classList.add("is-loading");
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Analyzing...";
-    }
-    const result = await checkTask(task, { silent: true });
-    showTaskResultPopup({
-      taskLabel: "Ask NetLens",
-      score: Math.round(result.confidence * 100),
-      icon: result.verdict === "yes" ? "OK" : result.verdict === "no" ? "!" : "?",
-      title: "Task analysis",
-      ...result,
+    const answer = await api("/api/v1/check-task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: question }),
     });
-  } catch {
-    showAgentUnavailableModal();
-  } finally {
-    form?.classList.remove("is-loading");
-    if (button) {
-      button.disabled = false;
-      button.textContent = "Analyze";
-    }
+    box.className = `answer ${answer.verdict}`;
+    box.replaceChildren(
+      el("div", { class: "answer-top" },
+        el("span", { class: `pill ${answer.verdict}`, text: answer.matched ? VERDICT_LABEL[answer.verdict] : "Not sure" }),
+        el("span", { class: "eyebrow", text: answer.matched ? `judged as ${answer.label}` : "no matching task" })),
+      el("h3", { text: `Can I ${question}?` }),
+      el("p", { text: answer.reason }),
+    );
+  } catch (error) {
+    box.className = "answer";
+    box.replaceChildren(
+      el("h3", { text: `Can I ${question}?` }),
+      el("p", { text: error.status === 409 ? "Run a scan first, then ask again." : error.message }),
+    );
   }
 }
 
-// Modal functions
-function showTaskResultPopup(data) {
-  const overlay = $("task-popup-overlay");
-  const popup = $("task-popup");
-  const verdict = $("task-popup-verdict");
-  const icon = $("task-popup-icon");
-  const errorActions = $("error-actions");
-  const errorRetry = $("error-retry");
-
-  if (!overlay || !popup || !verdict || !icon) return;
-
-  const verdictValue = data.verdict || "maybe";
-
-  overlay.hidden = false;
-  popup.className = `task-popup ${verdictValue}${data.isError ? " error-mode" : ""}`;
-  $("guide-steps").hidden = true;
-  if (errorActions) errorActions.hidden = !data.hasRetry;
-  if (errorRetry) errorRetry.textContent = "Try again";
-  setFallbackLabel(data.isError ? "Suggested action" : "Fallback");
-  verdict.className = `task-popup-badge ${verdictValue}`;
-  verdict.textContent = data.isError ? "ERROR" : verdictValue.toUpperCase();
-  icon.textContent = data.icon || (verdictValue === "yes" ? "OK" : verdictValue === "no" ? "!" : "?");
-  setText("task-popup-task", data.taskLabel || "Ask NetLens");
-  setText("task-popup-score", Number.isFinite(data.score) ? `${data.score}%` : "--");
-  setText("task-popup-title", data.title || "Task readiness");
-  setText("task-popup-confidence", data.confidenceText || `${Math.round((data.confidence || 0) * 100)}% confidence`);
-  setText("task-popup-explanation", data.explanation);
-  setText("task-popup-fallback", data.fallback);
-
-  requestAnimationFrame(() => {
-    overlay.classList.add("is-open");
-  });
-}
-
-function showRecommendationGuidePopup(guide) {
-  const overlay = $("task-popup-overlay");
-  const popup = $("task-popup");
-  const verdict = $("task-popup-verdict");
-  const icon = $("task-popup-icon");
-  const steps = $("guide-steps");
-  const stepList = $("guide-step-list");
-
-  if (!overlay || !popup || !verdict || !icon || !steps || !stepList) return;
-
-  overlay.hidden = false;
-  popup.className = "task-popup maybe guide-mode";
-  $("error-actions").hidden = true;
-  verdict.className = "task-popup-badge maybe";
-  verdict.textContent = guide.expectedImpact.toUpperCase();
-  icon.textContent = "AI";
-  setText("task-popup-task", "Recommendation guide");
-  setText("task-popup-score", guide.estimatedTime);
-  setText("task-popup-title", guide.title);
-  setText("task-popup-confidence", `Estimated time: ${guide.estimatedTime}`);
-  setText("task-popup-explanation", guide.reason);
-  setFallbackLabel("Best for");
-  setText("task-popup-fallback", `${guide.bestFor} ${guide.note}`);
-
-  stepList.textContent = "";
-  guide.steps.forEach((step) => {
-    const item = document.createElement("li");
-    item.textContent = step;
-    stepList.appendChild(item);
-  });
-  steps.hidden = false;
-
-  requestAnimationFrame(() => {
-    overlay.classList.add("is-open");
-  });
-}
-
-function setFallbackLabel(label) {
-  const fallbackLabel = document.querySelector(".task-popup-fallback span");
-  if (fallbackLabel) fallbackLabel.textContent = label;
-}
-
-function closeTaskResultPopup() {
-  const overlay = $("task-popup-overlay");
-  if (!overlay) return;
-
-  overlay.classList.remove("is-open");
-  window.setTimeout(() => {
-    overlay.hidden = true;
-    $("guide-steps").hidden = true;
-    $("error-actions").hidden = true;
-    pendingErrorRetry = null;
-  }, 180);
-}
-
-// View and navigation
-function switchView(viewName) {
-  const nextView = $(`${viewName}-view`);
-  if (!nextView) return;
-
-  document.querySelectorAll(".nav-btn[data-view-target]").forEach((button) => {
-    button.classList.toggle("act", button.dataset.viewTarget === viewName);
-  });
-
-  document.querySelectorAll(".app-view").forEach((view) => {
-    if (view === nextView) return;
-    view.classList.remove("is-active");
-    window.setTimeout(() => {
-      if (!view.classList.contains("is-active")) {
-        view.hidden = true;
-      }
-    }, 220);
-  });
-
-  nextView.hidden = false;
-  requestAnimationFrame(() => {
-    nextView.classList.add("is-active");
-  });
-
-  if (viewName === "history") {
-    refreshHistoryView();
-  }
-}
-
-function openAskNetLensSection() {
-  switchView("dashboard");
-
-  const askNav = $("ask-ai-nav");
-  askNav?.classList.add("is-temp-active");
-  window.setTimeout(() => askNav?.classList.remove("is-temp-active"), 1400);
-
-  window.setTimeout(() => {
-    const section = $("ask-netlens-section");
-    const input = $("ask-input");
-
-    section?.scrollIntoView({ behavior: "smooth", block: "center" });
-    section?.classList.add("is-highlighted");
-    window.setTimeout(() => section?.classList.remove("is-highlighted"), 1600);
-    window.setTimeout(() => input?.focus(), 360);
-  }, 240);
-}
-
-function runAskExample(example) {
-  const input = $("ask-input");
-  const form = $("ask-form");
-  if (!input || !form) return;
-
-  input.value = example;
-  input.focus();
-  form.requestSubmit();
-}
-
+// ---------------------------------------------------------------------------
 // History
-async function loadDiagnosticsHistory() {
+// ---------------------------------------------------------------------------
+
+async function loadHistory() {
   try {
-    const payload = await getJson("/api/v1/diagnostics/history");
-    const history = getHistoryRecords(payload);
-    const scores = history.map((record) => record.score).filter((score) => Number.isFinite(score));
-
-    if (scores.length > 0) {
-      renderSparkline(scores);
-    }
-
-    return history;
+    const rows = await api("/api/v1/history?limit=60");
+    state.history = rows;
+    renderChart(rows);
+    renderLog(rows);
   } catch {
-    return null;
+    $("chart").replaceChildren(el("div", { class: "chart-empty", text: "Log unavailable." }));
   }
 }
 
-function getHistoryRecords(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.history)) return payload.history;
-  if (Array.isArray(payload?.records)) return payload.records;
-  if (Array.isArray(payload?.scans)) return payload.scans;
-  return [];
-}
-
-async function refreshHistoryView() {
-  setHistoryLoading(true);
-  setHistoryMessage("Loading history...");
-  const isAgentReady = await checkAgentHealth();
-  if (!isAgentReady) {
-    setHistoryLoading(false);
-    renderHistoryUnavailable();
-    showErrorModal({
-      taskLabel: "History",
-      title: "History unavailable",
-      explanation: "History cannot load because the NetLens Agent is not running.",
-      action: "Start the backend with uvicorn main:app --reload, then refresh history.",
-      severity: "maybe",
-      icon: "!",
-      retryAction: refreshHistoryView,
-    });
+function renderChart(rows) {
+  const chart = $("chart");
+  if (rows.length < 2) {
+    chart.replaceChildren(el("div", { class: "chart-empty", text: rows.length ? "One scan so far. The trend appears after the next." : "No scans logged yet." }));
     return;
   }
-  const history = await loadDiagnosticsHistory();
+  const width = Math.max(chart.clientWidth, 280);
+  const height = chart.clientHeight || 180;
+  const left = 28;
+  const top = 10;
+  const bottom = 10;
+  const x = (i) => left + (i / (rows.length - 1)) * (width - left - 8);
+  const y = (score) => top + (1 - score / 100) * (height - top - bottom);
+  const grid = [0, 55, 80, 100].map((value) =>
+    svg("g", {},
+      svg("line", { x1: left, x2: width, y1: y(value), y2: y(value) }),
+      svg("text", { x: 0, y: y(value) + 3 }, String(value))));
+  const points = rows.map((row, i) => `${x(i).toFixed(1)},${y(row.score).toFixed(1)}`).join(" ");
+  const area = `${x(0).toFixed(1)},${y(0)} ${points} ${x(rows.length - 1).toFixed(1)},${y(0)}`;
+  chart.replaceChildren(
+    svg("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": `Score over the last ${rows.length} scans` },
+      svg("g", { class: "grid" }, grid),
+      svg("polygon", { class: "area", points: area }),
+      svg("polyline", { class: "line", points }),
+      rows.map((row, i) =>
+        svg("circle", { class: `dot-${row.status}`, cx: x(i), cy: y(row.score), r: 4.5 },
+          svg("title", {}, `${when(row.timestamp)}: ${row.score} (${row.status})`)))),
+  );
+}
 
-  if (history === null) {
-    setHistoryLoading(false);
-    renderHistoryUnavailable();
-    showErrorModal({
-      taskLabel: "History",
-      title: "History unavailable",
-      explanation: "NetLens could not read diagnostic history right now.",
-      action: "Check that the local backend is running and try refreshing history.",
-      severity: "maybe",
-      icon: "!",
-      retryAction: refreshHistoryView,
-    });
+function renderLog(rows) {
+  const body = $("log").tBodies[0];
+  const recent = rows.slice(-15).reverse();
+  if (!recent.length) {
+    body.replaceChildren(el("tr", {}, el("td", { colspan: "7", text: "No scans yet." })));
+    return;
+  }
+  body.replaceChildren(
+    ...recent.map((row) =>
+      el("tr", {},
+        el("td", { text: when(row.timestamp) }),
+        el("td", { class: `score r-${row.status === "offline" ? "poor" : row.status}`, text: row.score }),
+        el("td", { text: fmt(row.latency_ms, "ms") }),
+        el("td", { text: fmt(row.packet_loss, "%") }),
+        el("td", { text: fmt(row.download_mbps, "Mb/s") }),
+        el("td", { text: fmt(row.upload_mbps, "Mb/s") }),
+        el("td", { text: WHERE_LABEL[row.where_problem] || "—" }))),
+  );
+}
+
+async function clearLog() {
+  if (!confirm("Delete every scan in the log? This can't be undone.")) return;
+  try {
+    await api("/api/v1/history", { method: "DELETE" });
+  } finally {
+    loadHistory();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+
+async function init() {
+  $("export-btn").href = `${API}/api/v1/history.csv`;
+  const saver = $("data-saver");
+  saver.checked = storage.get("netlens.dataSaver") === "1";
+  saver.addEventListener("change", () => storage.set("netlens.dataSaver", saver.checked ? "1" : "0"));
+
+  $("scan-btn").addEventListener("click", startScan);
+  $("theme-btn").addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    storage.set("netlens.theme", next);
+  });
+  document.querySelectorAll("#suggestions button").forEach((button) =>
+    button.addEventListener("click", () => {
+      $("ask-input").value = button.textContent;
+      $("ask-form").requestSubmit();
+    }));
+  $("ask-form").addEventListener("submit", ask);
+  $("clear-btn").addEventListener("click", clearLog);
+  $("offline-retry").addEventListener("click", () => setTimeout(() => location.reload(), 50));
+
+  renderReadings({ metrics: { errors: {} } }, false);
+
+  const agent = await checkAgent();
+  if (agent !== true) {
+    $("scan-btn").disabled = true;
+    showOffline(agent);
     return;
   }
 
-  setHistoryLoading(false);
-  renderHistoryView(Array.isArray(history) ? history : []);
-}
+  try {
+    const latest = await api("/api/v1/scan/latest");
+    if (latest) render(latest);
+  } catch { /* shown again after the next scan */ }
+  loadHistory();
 
-function setHistoryLoading(isLoading) {
-  $("history-view")?.classList.toggle("is-loading", isLoading);
-  $("history-refresh")?.toggleAttribute("disabled", isLoading);
-}
-
-function renderHistoryView(history) {
-  const records = history.map(normalizeHistoryRecord).filter(Boolean);
-  const state = $("history-state");
-  const bars = $("history-bars");
-  const list = $("history-list");
-
-  if (!state || !bars || !list) return;
-
-  resetHistorySummary();
-  bars.textContent = "";
-  list.textContent = "";
-  setText("history-count", `${records.length} ${records.length === 1 ? "scan" : "scans"}`);
-
-  if (records.length === 0) {
-    setHistoryMessage("No scan history yet. Run a diagnosis to start building your network timeline.");
-    return;
-  }
-
-  state.hidden = true;
-  renderHistorySummary(records);
-  renderHistoryBars(records);
-  renderHistoryList(records);
-}
-
-function normalizeHistoryRecord(record) {
-  if (!record || typeof record !== "object") return null;
-
-  const score = Number(record.score);
-  const latency = Number(record.latency_ms ?? record.latency ?? record.ping_ms);
-  const packetLoss = Number(record.packet_loss ?? record.packet_loss_pct ?? record.loss);
-
-  return {
-    timestamp: record.timestamp || record.created_at || record.scanned_at || record.time || record.date,
-    score: Number.isFinite(score) ? Math.round(score) : null,
-    latency: Number.isFinite(latency) ? Math.round(latency) : null,
-    packetLoss: Number.isFinite(packetLoss) ? packetLoss : null,
-    status: record.status || inferHistoryStatus(score),
-  };
-}
-
-function inferHistoryStatus(score) {
-  if (!Number.isFinite(score)) return "unknown";
-  if (score >= 75) return "good";
-  if (score >= 55) return "fair";
-  return "poor";
-}
-
-function renderHistorySummary(records) {
-  const scores = records.map((record) => record.score).filter(Number.isFinite);
-  const latencies = records.map((record) => record.latency).filter(Number.isFinite);
-  const losses = records.map((record) => record.packetLoss).filter(Number.isFinite);
-
-  setText("history-avg-score", average(scores));
-  setText("history-avg-latency", average(latencies));
-  setText("history-avg-loss", average(losses, 1));
-  setText("history-best-score", scores.length ? Math.max(...scores) : "--");
-}
-
-function renderHistoryBars(records) {
-  const bars = $("history-bars");
-  if (!bars) return;
-
-  const scores = records.map((record) => record.score).filter(Number.isFinite).slice(-24);
-  const max = Math.max(...scores, 1);
-  bars.textContent = "";
-
-  scores.forEach((score) => {
-    const bar = document.createElement("div");
-    bar.className = "sbar";
-    bar.style.height = `${Math.max(6, Math.round((score / max) * 100))}%`;
-    bar.style.background = score >= 75 ? "#6ec896" : score >= 55 ? "#c8a96e" : "#c96e6e";
-    bar.title = `${score} score`;
-    bars.appendChild(bar);
-  });
-}
-
-function renderHistoryList(records) {
-  const list = $("history-list");
-  if (!list) return;
-
-  const header = createHistoryRow(["timestamp", "score", "latency", "packet loss", "status"], true);
-  list.appendChild(header);
-
-  records.slice().reverse().slice(0, 12).forEach((record) => {
-    const row = createHistoryRow([
-      formatHistoryTimestamp(record.timestamp),
-      record.score === null ? "--" : `${record.score}`,
-      record.latency === null ? "--" : `${record.latency} ms`,
-      record.packetLoss === null ? "--" : `${formatNumber(record.packetLoss, 1)} %`,
-      record.status,
-    ]);
-    row.querySelector(".history-score")?.classList.add(scoreClass(record.score));
-    row.querySelector(".history-status")?.classList.add(String(record.status).toLowerCase());
-    list.appendChild(row);
-  });
-}
-
-function createHistoryRow(values, isHeader = false) {
-  const row = document.createElement("div");
-  row.className = `history-row${isHeader ? " is-head" : ""}`;
-
-  values.forEach((value, index) => {
-    const cell = document.createElement("span");
-    if (index === 1) cell.className = "history-score";
-    if (index === 4) cell.className = "history-status";
-    cell.textContent = value;
-    row.appendChild(cell);
+  let resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => renderChart(state.history), 150);
   });
 
-  return row;
-}
-
-function renderHistoryUnavailable() {
-  resetHistorySummary();
-  setText("history-count", "0 scans");
-  if ($("history-bars")) $("history-bars").textContent = "";
-  if ($("history-list")) $("history-list").textContent = "";
-  setHistoryMessage("History is unavailable because the NetLens agent is not running.");
-}
-
-function setHistoryMessage(message) {
-  const state = $("history-state");
-  if (!state) return;
-
-  state.textContent = message;
-  state.hidden = false;
-}
-
-function resetHistorySummary() {
-  setText("history-avg-score", "--");
-  setText("history-avg-latency", "--");
-  setText("history-avg-loss", "--");
-  setText("history-best-score", "--");
-}
-
-function average(values, digits = 0) {
-  if (!values.length) return "--";
-  return formatNumber(values.reduce((sum, value) => sum + value, 0) / values.length, digits);
-}
-
-function formatNumber(value, digits = 0) {
-  return Number(value).toFixed(digits).replace(/\.0$/, "");
-}
-
-function formatHistoryTimestamp(value) {
-  if (!value) return "unknown";
-
-  const rawDate = typeof value === "number" && value < 1000000000000 ? value * 1000 : value;
-  const date = new Date(rawDate);
-  if (Number.isNaN(date.getTime())) return String(value);
-
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function scoreClass(score) {
-  if (!Number.isFinite(score)) return "";
-  if (score >= 75) return "good";
-  if (score >= 55) return "fair";
-  return "poor";
-}
-
-// Charts
-function renderSparkline(vals) {
-  const cols = vals.map((value) => (value >= 65 ? "#6ec896" : value >= 45 ? "#c8a96e" : "#c96e6e"));
-  const max = Math.max(...vals, 1);
-  const spark = $("spark");
-
-  if (!spark) return;
-  spark.textContent = "";
-
-  vals.forEach((value, index) => {
-    const bar = document.createElement("div");
-    bar.className = "sbar";
-    bar.style.cssText = `height:${Math.round((value / max) * 100)}%;background:${cols[index]};cursor:pointer;`;
-    bar.title = `${value} score`;
-    bar.addEventListener("mouseenter", () => {
-      bar.style.opacity = "1";
-    });
-    bar.addEventListener("mouseleave", () => {
-      bar.style.opacity = "0.74";
-    });
-    spark.appendChild(bar);
-  });
-}
-
-function renderStaticSparkline() {
-  renderSparkline([28, 40, 52, 38, 70, 82, 62, 85, 68, 50, 40, 35, 44, 58, 70]);
-}
-
-// Event listeners
-function attachEventListeners() {
-  document.querySelectorAll("[data-task-key]").forEach((card) => {
-    card.addEventListener("click", () => openTaskCardPopup(card));
-  });
-
-  $("ask-form")?.addEventListener("submit", analyzeAskNetLens);
-  $("task-popup-close")?.addEventListener("click", closeTaskResultPopup);
-  $("task-popup-overlay")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) {
-      closeTaskResultPopup();
+  setInterval(async () => {
+    if (!state.scanning) {
+      const ok = await checkAgent();
+      $("scan-btn").disabled = ok !== true;
     }
-  });
-  $("error-retry")?.addEventListener("click", () => {
-    const retry = pendingErrorRetry;
-    closeTaskResultPopup();
-    window.setTimeout(() => retry?.(), 220);
-  });
-  $("fix-list")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-guide-title]");
-    if (!button) return;
-
-    event.stopPropagation();
-    button.classList.add("is-loading");
-    openRecommendationGuide(button.dataset.guideTitle);
-    window.setTimeout(() => button.classList.remove("is-loading"), 360);
-  });
-  $("dashboard-nav")?.addEventListener("click", () => switchView("dashboard"));
-  $("history-nav")?.addEventListener("click", () => switchView("history"));
-  $("ask-ai-nav")?.addEventListener("click", openAskNetLensSection);
-  $("history-refresh")?.addEventListener("click", refreshHistoryView);
-  $("ask-netlens-section")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-ask-example]");
-    if (!button) return;
-
-    runAskExample(button.dataset.askExample);
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      closeTaskResultPopup();
-    }
-  });
+  }, 15000);
 }
 
-// Initialization
-function initApp() {
-  attachEventListeners();
-  renderTaskCards();
-  renderStaticSparkline();
-  checkAgentHealth().then((isConnected) => {
-    loadDiagnosticsHistory();
-    if (isConnected) {
-      runDiagnostics();
-    }
-  });
-}
-
-document.addEventListener("DOMContentLoaded", initApp);
+init();
